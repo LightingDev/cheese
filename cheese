@@ -85,6 +85,7 @@ def link_bin_entries(pkg, pkg_dir):
             os.symlink(full, target)
         except OSError:
             shutil.copy2(full, target)
+        os.chmod(target, 0o755)  # Ensure executable
 
 def pull(package):
     index = load_index()
