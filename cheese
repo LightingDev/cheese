@@ -226,7 +226,7 @@ def about():
     echo("Created by LightingDev AKA Yixuan")
     echo("https://github.com/LightingDev/cheese")
     echo("Open-source and community-driven!")
-    echo("[ VER 1.3 STABLE ]")
+    echo("[ VER 1.4 RECODE ]")
 
 def main():
     parser = argparse.ArgumentParser(prog="cheese", add_help=False)
