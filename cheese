@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os, sys, json, platform, argparse, zipfile, shutil, urllib.request, urllib.error, io
 
-REPO_URL = "https://raw.githubusercontent.com/YOUR-USERNAME/cheese-repo/main/index.json"
+REPO_URL = "https://raw.githubusercontent.com/LightingDev/cheese-repo/main/index.json"
 
 CHEESE_HOME = os.path.join(os.path.expanduser("~"), ".cheese")
 PACKAGES_DIR = os.path.join(CHEESE_HOME, "packages")
