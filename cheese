@@ -102,14 +102,16 @@ def create_cli_wrapper(package, entry_file):
     """
     New helper: create a lightweight wrapper to run the package's entry script.
     """
+    # Ensure BIN_DIR exists before writing
     os.makedirs(BIN_DIR, exist_ok=True)
+
     entry_path = os.path.join(PACKAGES_DIR, package, entry_file)
     if not os.path.exists(entry_path):
         echo(f"Entry script '{entry_file}' not found for {package}.")
         return
+
     wrapper_path = os.path.join(BIN_DIR, package)
     if os.name == "nt":
-        # .bat wrapper
         bat_path = wrapper_path + ".bat"
         with open(bat_path, "w") as f:
             f.write(f'@echo off\npython "{entry_path}" %*\n')
@@ -227,7 +229,7 @@ def about():
     echo("Created by LightingDev AKA Yixuan")
     echo("https://github.com/LightingDev/cheese")
     echo("Open-source and community-driven!")
-    echo("[ VER 1.5 RECODE ]")
+    echo("[ VER 1.6 RECODE ]")
 
 def main():
     parser = argparse.ArgumentParser(prog="cheese", add_help=False)
