@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-import os, sys, json, platform, argparse, zipfile, shutil, urllib.request, urllib.error, io, ssl
+import os, sys, json, platform, argparse, zipfile, shutil, urllib.request, urllib.error, io, ssl, subprocess, runpy
 
 REPO_URL = "https://raw.githubusercontent.com/LightingDev/cheese-repo/main/index.json"
 CHEESE_CLI_URL = "https://raw.githubusercontent.com/LightingDev/cheese/main/cheese"
 
 CHEESE_HOME = os.path.join(os.path.expanduser("~"), ".cheese")
 PACKAGES_DIR = os.path.join(CHEESE_HOME, "packages")
-BIN_DIR = os.path.join(CHEESE_HOME, "bin")
+BIN_DIR = os.path.join(CHEESE_HOME, "bin")          # Still kept (legacy; not used for wrappers now)
 INSTALLED_FILE = os.path.join(CHEESE_HOME, "installed.json")
 CLI_PATH = os.path.join(BIN_DIR, "cheese")
 
 for d in (CHEESE_HOME, PACKAGES_DIR, BIN_DIR):
-    os.makedirs(d, exist_ok=True)
+    try:
+        if os.path.isfile(d):
+            # If a file blocks directory creation, back it up
+            os.rename(d, d + ".bak_file")
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
 
 if not os.path.exists(INSTALLED_FILE):
     with open(INSTALLED_FILE, "w") as f:
@@ -21,22 +27,26 @@ def echo(msg):
     print(msg, flush=True)
 
 def get_platform_key():
-    # Kept (unused now) to avoid broader edits
     sysname = platform.system().lower()
     if "windows" in sysname: return "windows"
     if "darwin" in sysname: return "darwin"
     return "linux"
 
 def load_installed():
-    with open(INSTALLED_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(INSTALLED_FILE, "r") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+            return {}
+    except Exception:
+        return {}
 
 def save_installed(data):
     with open(INSTALLED_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
 def fetch_url(url):
-    import ssl
     try:
         with urllib.request.urlopen(url) as resp:
             return resp.read()
@@ -54,30 +64,34 @@ def load_index():
     if not data:
         echo("Failed to fetch package index.")
         sys.exit(1)
-    return json.loads(data.decode("utf-8"))
+    try:
+        idx = json.loads(data.decode("utf-8"))
+    except Exception as e:
+        echo(f"Invalid index.json: {e}")
+        sys.exit(1)
+    return idx
 
 def ensure_path():
+    # PATH no longer critical (no wrappers), but we keep it harmless.
     plat = get_platform_key()
     if plat in ("linux","darwin"):
-        rc_file = os.path.expanduser("~/.bashrc")
-        if not os.path.exists(rc_file):
-            rc_file = os.path.expanduser("~/.zshrc")
+        rc_file_candidates = [os.path.expanduser("~/.bashrc"), os.path.expanduser("~/.zshrc")]
         export_line = f'export PATH="{BIN_DIR}:$PATH"'
-        # Avoid blindly duplicating
-        try:
-            if os.path.exists(rc_file):
-                with open(rc_file, "r") as f:
-                    if BIN_DIR in f.read():
-                        return
-        except:
-            pass
+        for rc in rc_file_candidates:
+            try:
+                if os.path.exists(rc):
+                    with open(rc, "r") as f:
+                        if BIN_DIR in f.read():
+                            return
+            except Exception:
+                pass
+        # Append to the first existing or create new .bashrc
+        rc_file = rc_file_candidates[0]
         with open(rc_file, "a") as f:
             f.write(f"\n# Added by Cheese\n{export_line}\n")
-    else:
-        pass
 
 def extract_zip(data, target):
-    # Retained (no longer used in new format)
+    # Legacy (not used now)
     if os.path.exists(target):
         shutil.rmtree(target)
     os.makedirs(target, exist_ok=True)
@@ -85,7 +99,7 @@ def extract_zip(data, target):
         zf.extractall(target)
 
 def link_bin_entries(pkg, pkg_dir):
-    # Retained (no longer used in new format)
+    # Legacy (not used now)
     bin_src = os.path.join(pkg_dir, "bin")
     if not os.path.isdir(bin_src): return
     for entry in os.listdir(bin_src):
@@ -96,47 +110,24 @@ def link_bin_entries(pkg, pkg_dir):
             os.symlink(full, target)
         except OSError:
             shutil.copy2(full, target)
-        os.chmod(target, 0o755)  # Ensure executable
-
-def create_cli_wrapper(package, entry_file):
-    print(f"DEBUG: Ensuring BIN_DIR exists: {BIN_DIR}")  # Debug print
-    os.makedirs(BIN_DIR, exist_ok=True)
-
-    entry_path = os.path.join(PACKAGES_DIR, package, entry_file)
-    if not os.path.exists(entry_path):
-        echo(f"Entry script '{entry_file}' not found for {package}.")
-        return
-
-    wrapper_path = os.path.join(BIN_DIR, package)
-    print(f"DEBUG: Wrapper path to create: {wrapper_path}")  # Debug print
-
-    if os.name == "nt":
-        bat_path = wrapper_path + ".bat"
-        with open(bat_path, "w") as f:
-            f.write(f'@echo off\npython "{entry_path}" %*\n')
-    else:
-        with open(wrapper_path, "w") as f:
-            f.write(f'#!/usr/bin/env bash\npython3 "{entry_path}" "$@"\n')
-        os.chmod(wrapper_path, 0o755)
+        os.chmod(target, 0o755)
 
 def pull(package):
     index_root = load_index()
-    # New format: top-level has "packages" key
     packages_section = index_root.get("packages", index_root)
     if package not in packages_section:
         echo(f"Package '{package}' not found.")
         return
+    meta = packages_section[package]
+    version = meta.get("version", "0.0.0")
+    entry = meta.get("entry")
+    files = meta.get("files", {})
 
-    pkg_meta = packages_section[package]
-    version = pkg_meta.get("version", "0.0.0")
-    entry = pkg_meta.get("entry")
-    files = pkg_meta.get("files", {})
-
+    if not entry:
+        echo("Missing 'entry' in package metadata.")
+        return
     if not files:
         echo("No files listed for package.")
-        return
-    if not entry:
-        echo("Package missing 'entry' field.")
         return
 
     pkg_dir = os.path.join(PACKAGES_DIR, package)
@@ -162,34 +153,30 @@ def pull(package):
     if os.path.exists(req_path):
         try:
             with open(req_path, "r", encoding="utf-8") as rf:
-                lines = [l.strip() for l in rf if l.strip() and not l.strip().startswith("#")]
-            if lines:
+                deps = [l.strip() for l in rf if l.strip() and not l.strip().startswith("#")]
+            if deps:
                 echo("Installing dependencies...")
-                # Quiet-ish install; ignore errors but report if fails
-                try:
-                    import subprocess
-                    subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_path], check=False)
-                except Exception as dep_e:
-                    echo(f"Dependency installation warning: {dep_e}")
+                subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_path], check=False)
         except Exception as e:
-            echo(f"Could not read requirements.txt: {e}")
-
-    # Create wrapper
-    create_cli_wrapper(package, entry)
+            echo(f"Dependency install warning: {e}")
 
     installed = load_installed()
-    installed[package] = version
+    installed[package] = {"version": version, "entry": entry}
     save_installed(installed)
     echo(f"{package} installed successfully!")
-    ensure_path()
 
 def list_packages():
     installed = load_installed()
     if not installed:
         echo("No packages installed.")
         return
-    for pkg, ver in installed.items():
-        print(f"{pkg} ({ver})")
+    width = max(len(k) for k in installed.keys())
+    for name, info in installed.items():
+        if isinstance(info, dict):
+            ver = info.get("version", "?")
+        else:
+            ver = str(info)
+        print(f"{name.ljust(width)}  {ver}")
 
 def delete_package(package):
     installed = load_installed()
@@ -199,15 +186,13 @@ def delete_package(package):
     pkg_dir = os.path.join(PACKAGES_DIR, package)
     if os.path.exists(pkg_dir):
         shutil.rmtree(pkg_dir)
-    # Remove wrapper(s)
-    wrapper = os.path.join(BIN_DIR, package)
-    wrapper_bat = wrapper + ".bat"
-    for w in (wrapper, wrapper_bat):
+    # No wrappers now, so nothing in BIN to delete, but keep legacy cleanup:
+    legacy_wrapper = os.path.join(BIN_DIR, package)
+    legacy_bat = legacy_wrapper + ".bat"
+    for w in (legacy_wrapper, legacy_bat):
         if os.path.exists(w):
-            try:
-                os.remove(w)
-            except:
-                pass
+            try: os.remove(w)
+            except: pass
     del installed[package]
     save_installed(installed)
     echo(f"{package} removed.")
@@ -218,9 +203,14 @@ def update_cli():
     if not data:
         echo("Failed to fetch the latest Cheese CLI.")
         return
+    # Ensure BIN_DIR exists
+    os.makedirs(BIN_DIR, exist_ok=True)
     with open(CLI_PATH, "wb") as f:
         f.write(data)
-    os.chmod(CLI_PATH, 0o755)
+    try:
+        os.chmod(CLI_PATH, 0o755)
+    except Exception:
+        pass
     echo("Cheese CLI updated successfully!")
 
 def about():
@@ -228,12 +218,91 @@ def about():
     echo("Created by LightingDev AKA Yixuan")
     echo("https://github.com/LightingDev/cheese")
     echo("Open-source and community-driven!")
-    echo("[ VER 1.6 DEBUG ]")
+    echo("[ VER 1.7 DEBUG ]")
+
+def run_package(package, script_args):
+    installed = load_installed()
+    entry = None
+    if package in installed:
+        info = installed[package]
+        if isinstance(info, dict):
+            entry = info.get("entry")
+    # Fallback: read meta.json
+    if not entry:
+        meta_path = os.path.join(PACKAGES_DIR, package, "meta.json")
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                    entry = meta.get("entry")
+            except Exception:
+                pass
+    if not entry:
+        echo(f"Cannot determine entry script for '{package}'.")
+        return
+    entry_path = os.path.join(PACKAGES_DIR, package, entry)
+    if not os.path.exists(entry_path):
+        echo(f"Entry script not found: {entry_path}")
+        return
+    # Execute in a separate process so argv works naturally
+    cmd = [sys.executable, entry_path] + script_args
+    try:
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            echo(f"Package exited with code {result.returncode}")
+    except FileNotFoundError:
+        echo("Python interpreter not found when trying to run package.")
+    except Exception as e:
+        echo(f"Error running package: {e}")
+
+def doctor():
+    echo("Running cheese doctor...")
+    issues = []
+    # Check CHEESE_HOME
+    if not os.path.isdir(CHEESE_HOME):
+        issues.append("CHEESE_HOME missing; recreating.")
+        os.makedirs(CHEESE_HOME, exist_ok=True)
+    # BIN_DIR integrity
+    if os.path.isfile(BIN_DIR):
+        issues.append("BIN_DIR is a file; renaming and recreating.")
+        os.rename(BIN_DIR, BIN_DIR + ".bak_file")
+    if not os.path.isdir(BIN_DIR):
+        issues.append("Creating BIN_DIR.")
+        os.makedirs(BIN_DIR, exist_ok=True)
+    # PACKAGES_DIR
+    if not os.path.isdir(PACKAGES_DIR):
+        issues.append("Creating packages directory.")
+        os.makedirs(PACKAGES_DIR, exist_ok=True)
+    # INSTALLED_FILE
+    repaired_installed = False
+    try:
+        _ = load_installed()
+    except Exception:
+        issues.append("installed.json unreadable; resetting.")
+        with open(INSTALLED_FILE, "w") as f:
+            json.dump({}, f)
+        repaired_installed = True
+    # Permissions (basic check)
+    for path in (CHEESE_HOME, PACKAGES_DIR, BIN_DIR):
+        if not os.access(path, os.W_OK):
+            try:
+                os.chmod(path, 0o755)
+                issues.append(f"Adjusted permissions on {path}.")
+            except Exception:
+                issues.append(f"Could not adjust permissions on {path}.")
+    if not issues:
+        echo("No issues detected.")
+    else:
+        echo("Fixes applied:")
+        for i in issues:
+            echo(f"  - {i}")
+    echo("Doctor check complete.")
 
 def main():
     parser = argparse.ArgumentParser(prog="cheese", add_help=False)
     parser.add_argument("cmd", nargs="?", help="Command to run")
-    parser.add_argument("arg", nargs="?")
+    parser.add_argument("arg", nargs="?", help="Primary argument (package)")
+    parser.add_argument("rest", nargs=argparse.REMAINDER, help="Remaining args for run")
     args = parser.parse_args()
 
     if args.cmd == "pull":
@@ -252,13 +321,24 @@ def main():
         about()
     elif args.cmd == "update":
         update_cli()
+    elif args.cmd == "run":
+        if not args.arg:
+            echo("Usage: cheese run <package> [args...]")
+            return
+        # args.rest may start with '--'; pass all along
+        script_args = args.rest
+        run_package(args.arg, script_args)
+    elif args.cmd == "doctor":
+        doctor()
     else:
         echo("Cheese CLI:")
-        echo("  cheese pull <package>  - Install a package")
-        echo("  cheese del <package>   - Remove a package")
-        echo("  cheese list            - List installed packages")
-        echo("  cheese update          - Update the Cheese CLI")
-        echo("  cheese about           - Show about")
+        echo("  cheese pull <package>      - Install a package")
+        echo("  cheese del <package>       - Remove a package")
+        echo("  cheese list                - List installed packages")
+        echo("  cheese run <package> [...] - Run a package entry script with optional args")
+        echo("  cheese update              - Update the Cheese CLI")
+        echo("  cheese doctor              - Diagnose & fix environment issues")
+        echo("  cheese about               - Show about info")
 
 if __name__ == "__main__":
     main()
