@@ -12,8 +12,8 @@ It allows you to easily install, manage, and remove custom packages from your ow
   - `cheese pull <package>` – Install a package.
   - `cheese del <package>` – Remove a package.
   - `cheese list` – Show installed packages.
-  - `cheese --update` – Update the Cheese CLI itself.
-  - `cheese --credits` – Show credits.
+  - `cheese update` – Update the Cheese CLI itself.
+  - `cheese credits` – Show about.
 - Lightweight and easy to set up using `curl` or a Windows batch installer.
 
 ---
