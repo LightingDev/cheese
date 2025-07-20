@@ -160,9 +160,9 @@ def main():
         delete_package(args.arg)
     elif args.cmd == "list":
         list_packages()
-    elif args.cmd == "--credits":
+    elif args.cmd == "credits":
         show_credits()
-    elif args.cmd == "--update":
+    elif args.cmd == "update":
         update_cli()
     else:
         echo("Cheese CLI:")
