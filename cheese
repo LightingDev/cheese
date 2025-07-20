@@ -21,6 +21,7 @@ def echo(msg):
     print(msg, flush=True)
 
 def get_platform_key():
+    # Kept (unused now) to avoid broader edits
     sysname = platform.system().lower()
     if "windows" in sysname: return "windows"
     if "darwin" in sysname: return "darwin"
@@ -62,12 +63,21 @@ def ensure_path():
         if not os.path.exists(rc_file):
             rc_file = os.path.expanduser("~/.zshrc")
         export_line = f'export PATH="{BIN_DIR}:$PATH"'
+        # Avoid blindly duplicating
+        try:
+            if os.path.exists(rc_file):
+                with open(rc_file, "r") as f:
+                    if BIN_DIR in f.read():
+                        return
+        except:
+            pass
         with open(rc_file, "a") as f:
             f.write(f"\n# Added by Cheese\n{export_line}\n")
     else:
         pass
 
 def extract_zip(data, target):
+    # Retained (no longer used in new format)
     if os.path.exists(target):
         shutil.rmtree(target)
     os.makedirs(target, exist_ok=True)
@@ -75,6 +85,7 @@ def extract_zip(data, target):
         zf.extractall(target)
 
 def link_bin_entries(pkg, pkg_dir):
+    # Retained (no longer used in new format)
     bin_src = os.path.join(pkg_dir, "bin")
     if not os.path.isdir(bin_src): return
     for entry in os.listdir(bin_src):
@@ -87,26 +98,85 @@ def link_bin_entries(pkg, pkg_dir):
             shutil.copy2(full, target)
         os.chmod(target, 0o755)  # Ensure executable
 
+def create_cli_wrapper(package, entry_file):
+    """
+    New helper: create a lightweight wrapper to run the package's entry script.
+    """
+    entry_path = os.path.join(PACKAGES_DIR, package, entry_file)
+    if not os.path.exists(entry_path):
+        echo(f"Entry script '{entry_file}' not found for {package}.")
+        return
+    wrapper_path = os.path.join(BIN_DIR, package)
+    if os.name == "nt":
+        # .bat wrapper
+        bat_path = wrapper_path + ".bat"
+        with open(bat_path, "w") as f:
+            f.write(f'@echo off\npython "{entry_path}" %*\n')
+    else:
+        with open(wrapper_path, "w") as f:
+            f.write(f'#!/usr/bin/env bash\npython3 "{entry_path}" "$@"\n')
+        os.chmod(wrapper_path, 0o755)
+
 def pull(package):
-    index = load_index()
-    if package not in index:
+    index_root = load_index()
+    # New format: top-level has "packages" key
+    packages_section = index_root.get("packages", index_root)
+    if package not in packages_section:
         echo(f"Package '{package}' not found.")
         return
-    plat = get_platform_key()
-    url = index[package]["platforms"].get(plat)
-    if not url:
-        echo(f"No build for {plat}.")
+
+    pkg_meta = packages_section[package]
+    version = pkg_meta.get("version", "0.0.0")
+    entry = pkg_meta.get("entry")
+    files = pkg_meta.get("files", {})
+
+    if not files:
+        echo("No files listed for package.")
         return
-    echo(f"Downloading {package}...")
-    data = fetch_url(url)
-    if not data:
-        echo("Download failed.")
+    if not entry:
+        echo("Package missing 'entry' field.")
         return
+
     pkg_dir = os.path.join(PACKAGES_DIR, package)
-    extract_zip(data, pkg_dir)
-    link_bin_entries(package, pkg_dir)
+    if os.path.exists(pkg_dir):
+        shutil.rmtree(pkg_dir)
+    os.makedirs(pkg_dir, exist_ok=True)
+
+    echo(f"Downloading {package} ({version})...")
+    for fname, url in files.items():
+        echo(f"  - {fname}")
+        data = fetch_url(url)
+        if not data:
+            echo(f"Failed to download {fname}. Aborting.")
+            shutil.rmtree(pkg_dir, ignore_errors=True)
+            return
+        out_path = os.path.join(pkg_dir, fname)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "wb") as f:
+            f.write(data)
+
+    # Install dependencies if any
+    req_path = os.path.join(pkg_dir, "requirements.txt")
+    if os.path.exists(req_path):
+        try:
+            with open(req_path, "r", encoding="utf-8") as rf:
+                lines = [l.strip() for l in rf if l.strip() and not l.strip().startswith("#")]
+            if lines:
+                echo("Installing dependencies...")
+                # Quiet-ish install; ignore errors but report if fails
+                try:
+                    import subprocess
+                    subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_path], check=False)
+                except Exception as dep_e:
+                    echo(f"Dependency installation warning: {dep_e}")
+        except Exception as e:
+            echo(f"Could not read requirements.txt: {e}")
+
+    # Create wrapper
+    create_cli_wrapper(package, entry)
+
     installed = load_installed()
-    installed[package] = index[package]["version"]
+    installed[package] = version
     save_installed(installed)
     echo(f"{package} installed successfully!")
     ensure_path()
@@ -127,6 +197,15 @@ def delete_package(package):
     pkg_dir = os.path.join(PACKAGES_DIR, package)
     if os.path.exists(pkg_dir):
         shutil.rmtree(pkg_dir)
+    # Remove wrapper(s)
+    wrapper = os.path.join(BIN_DIR, package)
+    wrapper_bat = wrapper + ".bat"
+    for w in (wrapper, wrapper_bat):
+        if os.path.exists(w):
+            try:
+                os.remove(w)
+            except:
+                pass
     del installed[package]
     save_installed(installed)
     echo(f"{package} removed.")
@@ -156,8 +235,14 @@ def main():
     args = parser.parse_args()
 
     if args.cmd == "pull":
+        if not args.arg:
+            echo("Missing package name.")
+            return
         pull(args.arg)
     elif args.cmd == "del":
+        if not args.arg:
+            echo("Missing package name.")
+            return
         delete_package(args.arg)
     elif args.cmd == "list":
         list_packages()
@@ -170,8 +255,8 @@ def main():
         echo("  cheese pull <package>  - Install a package")
         echo("  cheese del <package>   - Remove a package")
         echo("  cheese list            - List installed packages")
-        echo("  cheese update        - Update the Cheese CLI")
-        echo("  cheese about       - Show about")
+        echo("  cheese update          - Update the Cheese CLI")
+        echo("  cheese about           - Show about")
 
 if __name__ == "__main__":
     main()
