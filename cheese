@@ -141,7 +141,7 @@ def update_cli():
     os.chmod(CLI_PATH, 0o755)
     echo("Cheese CLI updated successfully!")
 
-def show_credits():
+def about():
     echo("Cheese 🧀 - A Cross-Platform Package Manager")
     echo("Created by LightingDev AKA Yixuan")
     echo("https://github.com/LightingDev/cheese")
@@ -159,8 +159,8 @@ def main():
         delete_package(args.arg)
     elif args.cmd == "list":
         list_packages()
-    elif args.cmd == "credits":
-        show_credits()
+    elif args.cmd == "about":
+        about()
     elif args.cmd == "update":
         update_cli()
     else:
@@ -169,7 +169,7 @@ def main():
         echo("  cheese del <package>   - Remove a package")
         echo("  cheese list            - List installed packages")
         echo("  cheese update        - Update the Cheese CLI")
-        echo("  cheese credits       - Show credits")
+        echo("  cheese about       - Show about")
 
 if __name__ == "__main__":
     main()
