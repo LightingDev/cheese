@@ -22,5 +22,5 @@ It allows you to easily install, manage, and remove custom packages from your ow
 
 ### **Linux / macOS**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR-USERNAME/cheese/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/LightingDev/cheese/main/install.sh | bash
 source ~/.bashrc   # or source ~/.zshrc
