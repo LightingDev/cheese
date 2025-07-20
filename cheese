@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+import os, sys, json, platform, argparse, zipfile, shutil, urllib.request, urllib.error, io
+
+REPO_URL = "https://raw.githubusercontent.com/YOUR-USERNAME/cheese-repo/main/index.json"
+
+CHEESE_HOME = os.path.join(os.path.expanduser("~"), ".cheese")
+PACKAGES_DIR = os.path.join(CHEESE_HOME, "packages")
+BIN_DIR = os.path.join(CHEESE_HOME, "bin")
+INSTALLED_FILE = os.path.join(CHEESE_HOME, "installed.json")
+
+for d in (CHEESE_HOME, PACKAGES_DIR, BIN_DIR):
+    os.makedirs(d, exist_ok=True)
+
+if not os.path.exists(INSTALLED_FILE):
+    with open(INSTALLED_FILE, "w") as f:
+        json.dump({}, f)
+
+def echo(msg):
+    print(msg, flush=True)
+
+def get_platform_key():
+    sysname = platform.system().lower()
+    if "windows" in sysname: return "windows"
+    if "darwin" in sysname: return "darwin"
+    return "linux"
+
+def load_installed():
+    with open(INSTALLED_FILE, "r") as f:
+        return json.load(f)
+
+def save_installed(data):
+    with open(INSTALLED_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def fetch_url(url):
+    try:
+        with urllib.request.urlopen(url) as resp:
+            return resp.read()
+    except Exception as e:
+        echo(f"Error fetching {url}: {e}")
+        return None
+
+def load_index():
+    data = fetch_url(REPO_URL)
+    if not data:
+        echo("Failed to fetch package index.")
+        sys.exit(1)
+    return json.loads(data.decode("utf-8"))
+
+def ensure_path():
+    plat = get_platform_key()
+    if plat in ("linux","darwin"):
+        rc_file = os.path.expanduser("~/.bashrc")
+        if not os.path.exists(rc_file):
+            rc_file = os.path.expanduser("~/.zshrc")
+        export_line = f'export PATH="{BIN_DIR}:$PATH"'
+        with open(rc_file, "a") as f:
+            f.write(f"\n# Added by Cheese\n{export_line}\n")
+    else:
+        pass
+
+def extract_zip(data, target):
+    if os.path.exists(target):
+        shutil.rmtree(target)
+    os.makedirs(target, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        zf.extractall(target)
+
+def link_bin_entries(pkg, pkg_dir):
+    bin_src = os.path.join(pkg_dir, "bin")
+    if not os.path.isdir(bin_src): return
+    for entry in os.listdir(bin_src):
+        full = os.path.join(bin_src, entry)
+        target = os.path.join(BIN_DIR, entry)
+        if os.path.exists(target): os.remove(target)
+        try:
+            os.symlink(full, target)
+        except OSError:
+            shutil.copy2(full, target)
+
+def pull(package):
+    index = load_index()
+    if package not in index:
+        echo(f"Package '{package}' not found.")
+        return
+    plat = get_platform_key()
+    url = index[package]["platforms"].get(plat)
+    if not url:
+        echo(f"No build for {plat}.")
+        return
+    echo(f"Downloading {package}...")
+    data = fetch_url(url)
+    if not data:
+        echo("Download failed.")
+        return
+    pkg_dir = os.path.join(PACKAGES_DIR, package)
+    extract_zip(data, pkg_dir)
+    link_bin_entries(package, pkg_dir)
+    installed = load_installed()
+    installed[package] = index[package]["version"]
+    save_installed(installed)
+    echo(f"{package} installed successfully!")
+    ensure_path()
+
+def list_packages():
+    installed = load_installed()
+    if not installed:
+        echo("No packages installed.")
+        return
+    for pkg, ver in installed.items():
+        print(f"{pkg} ({ver})")
+
+def delete_package(package):
+    installed = load_installed()
+    if package not in installed:
+        echo(f"Package '{package}' not installed.")
+        return
+    pkg_dir = os.path.join(PACKAGES_DIR, package)
+    if os.path.exists(pkg_dir):
+        shutil.rmtree(pkg_dir)
+    del installed[package]
+    save_installed(installed)
+    echo(f"{package} removed.")
+
+def main():
+    parser = argparse.ArgumentParser(prog="cheese")
+    sub = parser.add_subparsers(dest="cmd")
+    p_pull = sub.add_parser("pull")
+    p_pull.add_argument("package")
+    p_del = sub.add_parser("del")
+    p_del.add_argument("package")
+    sub.add_parser("list")
+    args = parser.parse_args()
+    if args.cmd == "pull":
+        pull(args.package)
+    elif args.cmd == "del":
+        delete_package(args.package)
+    elif args.cmd == "list":
+        list_packages()
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()
