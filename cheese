@@ -35,12 +35,11 @@ def save_installed(data):
         json.dump(data, f, indent=2)
 
 def fetch_url(url):
-    """Fetch a URL with SSL fallback if needed."""
+    import ssl
     try:
         with urllib.request.urlopen(url) as resp:
             return resp.read()
-    except urllib.error.URLError as e:
-        echo(f"SSL verification failed, retrying without verification... ({e})")
+    except urllib.error.URLError:
         try:
             no_ssl = ssl._create_unverified_context()
             with urllib.request.urlopen(url, context=no_ssl) as resp:
