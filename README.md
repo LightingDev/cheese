@@ -24,6 +24,7 @@ It allows you to easily install, manage, and remove custom packages from your ow
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LightingDev/cheese/main/install.sh | bash
 source ~/.bashrc   # or source ~/.zshrc
+```
 
 ### **Windows**
 ```bash
