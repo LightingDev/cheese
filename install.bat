@@ -1,13 +1,29 @@
 @echo off
-set "CHEESE_BIN=%USERPROFILE%\.cheese\bin"
-mkdir "%CHEESE_BIN%" 2>nul
+setlocal
 
-curl -L "https://raw.githubusercontent.com/LightingDev/cheese/main/cheese" -o "%CHEESE_BIN%\cheese"
+echo Installing Cheese CLI...
 
-:: Wrapper
-echo @echo off > "%CHEESE_BIN%\cheese.cmd"
-echo python "%%~dp0cheese" %%* >> "%CHEESE_BIN%\cheese.cmd"
+:: Set directories
+set CHEESE_DIR=%USERPROFILE%\.cheese
+set BIN_DIR=%CHEESE_DIR%\bin
 
-setx PATH "%CHEESE_BIN%;%PATH%"
-echo Installed! Restart terminal to use 'cheese'.
+if not exist "%BIN_DIR%" (
+    mkdir "%BIN_DIR%"
+)
+
+:: Download the Cheese executable
+echo Downloading Cheese executable...
+curl -L https://raw.githubusercontent.com/LightingDev/cheese/main/cheese -o "%BIN_DIR%\cheese"
+
+:: Make a cheese.bat wrapper to call the CLI
+echo @echo off > "%BIN_DIR%\cheese.bat"
+echo "%BIN_DIR%\cheese" %%* >> "%BIN_DIR%\cheese.bat"
+
+:: Add Cheese to PATH (permanent)
+setx PATH "%BIN_DIR%;%PATH%" >nul
+
+echo Cheese installed successfully!
+echo Please restart your terminal or run "refreshenv" to use Cheese.
+
+endlocal
 pause
