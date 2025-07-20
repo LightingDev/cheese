@@ -169,8 +169,8 @@ def main():
         echo("  cheese pull <package>  - Install a package")
         echo("  cheese del <package>   - Remove a package")
         echo("  cheese list            - List installed packages")
-        echo("  cheese --update        - Update the Cheese CLI")
-        echo("  cheese --credits       - Show credits")
+        echo("  cheese update        - Update the Cheese CLI")
+        echo("  cheese credits       - Show credits")
 
 if __name__ == "__main__":
     main()
