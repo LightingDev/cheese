@@ -11,13 +11,13 @@ if not exist "%BIN_DIR%" (
     mkdir "%BIN_DIR%"
 )
 
-:: Download the Cheese executable
+:: Download the Cheese Python script
 echo Downloading Cheese executable...
 curl -L https://raw.githubusercontent.com/LightingDev/cheese/main/cheese -o "%BIN_DIR%\cheese"
 
-:: Make a cheese.bat wrapper to call the CLI
+:: Make a cheese.bat wrapper that calls Python
 echo @echo off > "%BIN_DIR%\cheese.bat"
-echo "%BIN_DIR%\cheese" %%* >> "%BIN_DIR%\cheese.bat"
+echo python "%%~dp0cheese" %%* >> "%BIN_DIR%\cheese.bat"
 
 :: Add Cheese to PATH (permanent)
 setx PATH "%BIN_DIR%;%PATH%" >nul
